@@ -1,0 +1,112 @@
+version: '3'
+
+networks:
+  backend:
+
+services:
+    apache:
+        image: httpd:2.4
+        ports:
+            - '8080:8080'
+        volumes:
+            - ../Projects:/var/www
+            - ./httpd/envvars:/etc/apache2/envvars
+            - ./httpd/httpd.conf:/usr/local/apache2/conf/httpd.conf
+            - ./httpd/sites-enabled:/usr/local/apache2/sites-enabled/
+            - ./httpd/sites-available:/usr/local/apache2/sites-available/
+            - ./php-8-2-workspace/xdebug.ini:/usr/local/etc/php/conf.d/xdebug.ini
+            - ./httpd/logs:/var/log/httpd-logs/
+        depends_on:
+            - php-8.2
+        links:
+            - php-8.2
+        networks:
+            - backend
+            
+    nginx:
+        image: nginx:1.16
+        ports:
+            - '80:80'
+        volumes:
+            - ../Projects:/var/www
+            - ./nginx/conf.d:/etc/nginx/conf.d
+            - ./nginx/sites-available:/etc/nginx/sites-available/
+            - ./nginx/sites-enabled:/etc/nginx/sites-enabled/
+            - ./nginx/logs:/var/log/nginx/
+        depends_on:
+            - apache
+            - php-8.2
+        networks:
+            - backend
+            
+    mysql-5.7:
+        image: mysql:5.7
+        container_name: mysql-5.7
+        restart: unless-stopped
+        volumes:
+            - ../Mysql/dump:/dump
+            - ../Mysql/data-5.7:/var/lib/mysql/
+            - ../Mysql/logs-5.7:/var/log/mysql/
+            - ./mysql-5.7/conf.d:/etc/mysql/conf.d
+            - ./mysql-5.7/my.cnf:/etc/mysql/my.cnf
+        command: ['--character-set-server=utf8', '--collation-server=utf8_general_ci']
+        environment:
+            MYSQL_ROOT_PASSWORD: mysql
+            MYSQL_DATABASE: bnovo_tz
+        ports:
+            - 3306:3306
+        networks:
+            - backend
+
+    php-8.2:
+        build:
+            context: php-8-2-workspace
+            dockerfile: Dockerfile
+        volumes:
+            - ../Projects/bnovo.tz:/var/www/bnovo.tz
+            - ./php-ini/8.2/php.ini:/usr/local/etc/php/php.ini
+            - ./.ssh:/home/www-data/.ssh
+        links:
+            - "mysql-5.7"
+        networks:
+            - backend
+
+    artisan:
+        build:
+            dockerfile: php.dockerfile
+            args:
+                - UID=${UID:-1000}
+                - GID=${GID:-1000}
+        volumes:
+            - ../:/var/www/bnovo.tz
+        depends_on:
+            - mysql-5.7
+        entrypoint: [ 'php', 'artisan' ]
+        networks:
+            - backend
+
+    composer:
+        build:
+            dockerfile: php.dockerfile
+            args:
+                - UID=${UID:-1000}
+                - GID=${GID:-1000}
+        volumes:
+            - ../:/var/www/bnovo.tz
+        depends_on:
+            - php-8.2
+        entrypoint: [ 'composer', '--ignore-platform-reqs' ]
+        networks:
+            - backend
+
+
+    phpmyadmin:
+        container_name: phpmyadmin
+        image: phpmyadmin
+        restart: unless-stopped
+        environment:
+            - PMA_HOST=mysql-5.7
+        ports:
+            - '1500:80'
+        networks:
+            - backend
